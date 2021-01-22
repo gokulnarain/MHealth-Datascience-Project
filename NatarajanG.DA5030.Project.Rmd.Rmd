@@ -1,0 +1,1116 @@
+---
+title: "DA_5030_Final_Project"
+author: "Gokul Narain Natarajan"
+date: "12/13/2020"
+output:
+  pdf_document: default
+  html_notebook: default
+geometry: margin=1in
+fontsize: 12pt
+---
+
+#\center ___DA5030 - Data Mining and Machine Learning - Final Project___
+
+Project details:
+*Mobile Health (MHEALTH) dataset is selected for my project. 
+*The objective of this project is to find which exercise is very helpful in heart monitoring using different sensor data for 4 different person.
+
+## *Step 1: Importing dataset*
+
+```{r,, warning=FALSE}
+# Connecting to the website and downloading the dataset:
+
+link <- "http://archive.ics.uci.edu/ml/machine-learning-databases/00319/MHEALTHDATASET.zip" 
+# The link is the site where the dataset is available
+temp <- tempfile()  # Temporary location where the file is stored
+download.file(link,temp) # Download the dataset file from th link to the temp location
+
+
+# There are 10 files but we are taking the 1st 4 for our peoject:
+# 4 files are stored in 4 variables below:
+
+df1 <- data.frame(read.table(unz(temp, "MHEALTHDATASET/mHealth_subject1.log")))
+df2 <- data.frame(read.table(unz(temp, "MHEALTHDATASET/mHealth_subject2.log")))
+df3 <- data.frame(read.table(unz(temp, "MHEALTHDATASET/mHealth_subject3.log")))
+df4 <- data.frame(read.table(unz(temp, "MHEALTHDATASET/mHealth_subject4.log")))
+
+
+# Combining all 4 dataset into 1:
+
+df <- rbind(df1,df2,df3,df4)
+
+
+# Creating headers to the dataset:
+
+colnames(df) <- c("chest_acc_x_axis","chest_acc_y_axis","chest_acc_z_axis","ECG_lead_1","ECG_lead_2","ankle_acc_x_axis","ankle_acc_y_axis","ankle_acc_z_axis","ankle_gyro_x_axis","ankle_gyro_y_axis","ankle_gyro_z_axis","ankle_magno_x_axis","ankle_magno_y_axis","ankle_magno_z_axis","arm_acc_x_axis","arm_acc_y_axis","arm_acc_z_axis","arm_gyro_x_axis","arm_gyro_y_axis","arm_gyro_z_axis","arm_magno_x_axis","arm_magno_y_axis","arm_magno_z_axis","Label")
+
+
+# Exploring the dataset:
+head(df)
+summary(df)
+str(df)
+
+
+# Checking the distribution of the target variable:
+table(df$Label)
+
+
+# Taking the small balanced dataset for our project as the dataset is large:
+
+set.seed(87932)
+
+# Installing the stratifyR package:
+if(!require(stratifyR))
+  {
+    install.packages("stratifyR")
+    library(stratifyR)
+}
+
+# Installing the splitstackshape package:
+if(!require(splitstackshape))
+  {
+    install.packages("splitstackshape")
+    library(splitstackshape)
+}
+
+# Installing the readr package:
+if(!require(readr))
+  {
+    install.packages("readr")
+    library(readr)
+}
+
+# Installing the dplyr package:
+if(!require(dplyr))
+  {
+    install.packages("dplyr")
+    library(dplyr)
+}
+
+# Taking 4000 records of each of the 12 levels to create a new dataset:
+# As the dataset is too large 
+# Also if we take the stratified dataset, level 1 alone holds ~60% of the data so 
+# planning to balanced data using undersampling to reduce the size and 
+# equal distribution of target var to training dataset. 
+# Thus the model will be tranined with all levels
+
+d <- df %>%group_by(Label) %>% sample_n(4000, replace = FALSE) # Under sampling 
+
+
+# Exploring the balanced dataset:
+head(d)
+summary(d)
+str(d)
+
+# Exploring the target variable of the new dataset:
+
+table(d$Label)
+```
+
+## *Step 2: Exploratory data plots*
+
+```{r, warning=FALSE}
+# Creating a function to generate histogram for every variable in the dataset
+
+# Installing the ggplot2 package:
+if(!require(ggplot2))
+  {
+    install.packages("ggplot2")
+    library(ggplot2)
+}
+
+r <- list()
+hist_val<- function(d){
+xx <- ncol(d)
+for(i in 1:xx ){
+  r[[i]] <- ggplot(d,aes(x=d[,i]))+geom_histogram(color="darkblue", fill="lightblue",bins = 10)+ggtitle("Histograms of variables from mHealth DS")+xlab("Variables") 
+  }
+  return(r)
+}
+# hist_val(d)  
+
+yy <- ncol(d)
+s <-list()
+hist_plot <- function(d){ # Here d is the data set
+for(i in 1:yy){
+# Plotting the histogram
+  s[[i]] <- hist_val(as.data.frame(d[,i]))
+}
+  return(s)
+}
+
+hist_plot(d)
+```
+
+### From the basic histogram plots, no variables are normally distributed
+### The last histogram is for target variable and it has equal distribution as we have designed the dataset with undersampling to have equal no of dependent variable (there is a variaton on the graph on 3 places due to binning of x axis)
+
+## *Step 3: Finding Outliers*
+
+```{r}
+# To find if there are any missing data in the dataset
+length(d[is.na(d)])
+
+# Writing function to find outliers
+# Z score validation method to find outliers
+outlier <- function(d)
+{
+sd <- 0
+mn <- 0
+zs <- list() # try dataframe
+xx <- ncol(d)
+
+# Finding Z score of every value
+for (x in 1:xx) {
+  sd[x] <- sapply(d[,x],sd)
+  mn[x] <- sapply(d[,x],mean)
+  zs[[x]] <- (d[,x]-mn[x])/sd[x]
+}
+
+zs <- as.data.frame(zs)
+colnames(zs) <- c("chest_acc_x_axis","chest_acc_y_axis","chest_acc_z_axis","ECG_lead_1","ECG_lead_2","ankle_acc_x_axis","ankle_acc_y_axis","ankle_acc_z_axis","ankle_gyro_x_axis","ankle_gyro_y_axis","ankle_gyro_z_axis","ankle_magno_x_axis","ankle_magno_y_axis","ankle_magno_z_axis","arm_acc_x_axis","arm_acc_y_axis","arm_acc_z_axis","arm_gyro_x_axis","arm_gyro_y_axis","arm_gyro_z_axis","arm_magno_x_axis","arm_magno_y_axis","arm_magno_z_axis","Label")
+
+# Finding outlier of every column
+out <- list()
+for (x in 1:xx){
+out[[x]] <- which(zs[,x]>1.5)
+}
+
+# Imouting outliers values
+
+for (y in 1:xx){
+d[out[[y]],y] <- sapply(d[y],mean) # Imputing the mean value for replacing outlier data
+}
+
+}
+
+
+outlier(d)
+```
+
+### Since the data range is too small for each of the variable, we imputed the mean value to replace the outliers data
+### Verified every single outlier data is replaced by its col mean's val
+
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## *Step 4: Correlation analysis*
+
+```{r}
+# Correlation of each variables:
+
+cor(d)
+
+```
+### Based on the correlation table above, there are high correlation between ankle and arm gyro sensors in all 3 axis (x,y and z)
+### Also the highest correlation is between arm_gyro_z_axis and ankle_gyro_x_axis which are positively correlation and change in one variable will increase the other one by 0.620408094
+### Z axis sensors are negatively correlated with the Label (sometimes poorly correlated) - Label and chest_acc_z_axis have a correlation value of -0.355503886
+### There is a strong correlation betweeen other ankle and arm sensors
+### There is a good correlation between ECG lead 1 and ECG lead 2
+### There is a good correlation between arm y axis and chest z axis
+
+
+## *Step 5: Normality check* 
+
+```{r}
+# Installing the nortest package:
+
+if(!require(nortest))
+  {
+    install.packages("nortest")
+    library(nortest)
+  }
+# Evaluation of distribution:
+
+nor <- list()
+xy <- ncol(d)
+
+# Building function for checking the normality:
+
+normality <- function(d){
+  for(i in 1:xy){
+    nor[[i]] <- sapply(d[,i],ad.test) # Anderson–Darling test (as the dataset is large)
+  }
+  return(nor)
+}
+normality(d)
+
+```
+### The p value is less than the alpha value of 0.05 so the columns are not normally distributed.
+
+
+## *Step 6: Normalizing the features using min-max method*
+
+```{r}
+# Building the function to normalize the data using min-max normalization method:
+
+normalize <- function(x)
+{
+  return((x- min(x)) /(max(x)-min(x)))
+}
+
+d_new <- normalize(d[-24])
+
+# Creating new dataset using the normalized data:
+
+d <- cbind(d_new,d[24])
+names(d)[24] <- paste("Label")
+head(d)
+```
+
+
+
+## *Step 7: PCA - principal component analysis*
+
+```{r}
+d_pca <- princomp(d[,1:23])
+# d_pca
+d_cov <- cov(d[1:23]) # Covariance matrix
+# d_cov
+d_eigen <- eigen(d_cov) # Direct eigen of COV
+# d_eigen
+plot(d_eigen$values,type = "b") # Scree plot to determine the no of factor to keep
+```
+
+### From the PCA analysis and scree plot, 6 factors are significant and rest are all noise.
+
+
+
+## *Step 8: Building new dataset of only the columns after PCA and the target var*
+
+```{r}
+# The first 6 columns and the target var
+d_shrink <- d[,c(1:6,24)] # New dataset after PCA
+head(d_shrink)
+```
+
+
+### **Step 9: Correlation plot for the selected variables**
+
+```{r}
+# Installing the psych package:
+if(!require(psych))
+  {
+    install.packages("psych")
+    library(psych)
+  }
+
+# Distribution of correaltion of each feature
+pairs.panels(d_shrink)
+```
+
+### ECG lead 1 and 2 are highly positively correlated 
+### Ankle acceleration y axis and chest acceleration x axis are comparatively positively correlated 
+### chest acc z axis and the lable are highly negatively correlated
+### There is no correlation between ECG level 2 and label and ECG lead 1 and ankle acc x-axis
+### Other than the above, most of the other variables are poorly correlated
+
+
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## *Step 10: Training, testing and validation dataset*
+
+```{r}
+# Taking 60% of data for training
+# Note: createdatapartition from caret can also be used to do partition
+
+# Training data:
+
+# Installing the class package:
+
+if(!require(dplyr))
+  {
+    install.packages("dplyr")
+    library(dplyr)
+  }
+
+train    <- d_shrink %>% group_by(Label) %>% sample_n(2400, replace = FALSE)
+remaining_d_shrink <- setdiff(d_shrink,train)
+
+# Testing data:
+
+test <- remaining_d_shrink %>%group_by(Label) %>% sample_n(800, replace = FALSE)
+remaining_d_shrink_2 <- setdiff(remaining_d_shrink,test)
+
+# Validation data:
+
+validate <- remaining_d_shrink_2
+
+# Results of all datasets:
+nrow(train)
+nrow(test)
+nrow(validate)
+table(train$Label)
+table(test$Label)
+table(validate$Label)
+```
+
+## *Step 11: Building Model A - kNN*
+
+```{r}
+set.seed(778989)
+
+# Data preparation:
+
+target_train_knn <- train$Label
+target_test_knn <- test$Label
+test_knn <- test[-7]
+train_knn <- train[-7]
+
+
+# Installing the class package:
+
+if(!require(class))
+  {
+    install.packages("class")
+    library(class)
+  }
+
+
+# Training the model:
+
+model_knn_1 <- knn(train = train_knn,test = test_knn,cl = target_train_knn,k=178) 
+# Taking k=178, the sqrt of total number of training data
+
+
+# Installing the gmodels package:
+
+if(!require(gmodels))
+  {
+    install.packages("gmodels")
+    library(gmodels)
+}
+
+
+# Confusion matrix:
+
+CrossTable(x=target_test_knn, y=model_knn_1,chisq=FALSE,prop.chisq = FALSE)
+t_1 <- table(model_knn_1,test$Label)
+t_1
+
+# Finding the accuracy:
+
+acc_1 <- sum(diag(t_1))/sum(t_1)*100
+acc_1
+
+
+# Building a for loop for testing the model with different hyperparameter k:
+
+model_knn_sample <- list()
+for(k in 175:180)
+{
+  model_knn_sample[[k]] <- knn(train = train_knn,test = test_knn,cl = target_train_knn,k=k)
+}
+
+# Confusion matrix for different k values:
+
+t_sam <- list()
+acc_sam <- list()
+for(i in 175:180){
+t_sam[[i]] <- table(model_knn_sample[[i]],test$Label)
+
+# Finding the accuracy of the model for different k:
+
+acc_sam[[i]] <- (sum(diag(t_sam[[i]]))/sum(t_sam[[i]]))*100
+}
+
+
+# Results of each kNN model with different k values:
+
+paste0("The accuracy of kNN model with k=175 is ", round(acc_sam[[175]],4))
+paste0("The accuracy of kNN model with k=176 is ", round(acc_sam[[176]],4))
+paste0("The accuracy of kNN model with k=177 is ", round(acc_sam[[177]],4))
+paste0("The accuracy of kNN model with k=178 is ", round(acc_sam[[178]],4))
+paste0("The accuracy of kNN model with k=179 is ", round(acc_sam[[179]],4))
+paste0("The accuracy of kNN model with k=180 is ", round(acc_sam[[180]],4))
+
+```
+
+
+### From the result of kNN models with different k values - k=179 has the highest accuracy with test data and it will be taken to build the final model that would be tested with the validation data
+
+## *Step 12: Building Model B - SVM*
+
+```{r}
+set.seed(32342)
+
+# Installing the kernlab package:
+
+if(!require(kernlab))
+  {
+    install.packages("kernlab")
+    library(kernlab)
+}
+
+# Installing the e1071 package:
+if(!require(e1071))
+  {
+    install.packages("e1071")
+    library(e1071)
+}
+
+
+## Trying two different functions SVM and KSVM to verify which one works better
+
+# SVM model using SVM function:
+
+
+# Model 1 with 'Radial' kernal:
+
+model_svm_1 <- svm(Label~., data=train, type = "C-classification", kernal = "radial")
+
+# Predicting with test data:
+
+model_svm_predict_1 <- predict(model_svm_1,test)
+
+# Confusion matrix:
+
+t_2 <- table(model_svm_predict_1,test$Label)
+
+# Finding the accuracy:
+
+acc_2 <- sum(diag(t_2))/sum(t_2)*100
+
+
+# Model 2 with 'Radial' kernal and cost parameter:
+
+model_svm_3 <- svm(Label~., data=train, type = "C-classification", kernal = "radial", cost=10)
+
+# Predicting with test data:
+
+model_svm_predict_3 <- predict(model_svm_3,test)
+
+# Confusion matrix:
+
+t_3 <- table(model_svm_predict_3,test$Label)
+
+# Finding the accuracy:
+
+acc_3 <- sum(diag(t_3))/sum(t_3)*100
+
+
+# Model 3 with 'vanilladot' kernal:
+
+model_svm_4 <- ksvm(Label~., data=train, kernel="vanilladot")
+
+# Predicting with test data:
+
+model_svm_predict_4 <- predict(model_svm_4,test)
+model_svm_predict_4 <- round(model_svm_predict_4)
+
+# Confusion matrix:
+
+t_4 <- table(model_svm_predict_4,test$Label)
+
+# Finding the accuracy:
+
+acc_4 <- sum(diag(t_4))/sum(t_4)*100
+
+
+# Model 4 with 'rbfdot' kernal:
+
+model_svm_5 <- ksvm(Label~., data=train, kernel="rbfdot")
+
+# Predicting with test data:
+
+model_svm_predict_5 <- predict(model_svm_5,test)
+model_svm_predict_5 <- round(model_svm_predict_5)
+
+# Confusion matrix:
+
+t_5 <- table(model_svm_predict_5,test$Label)
+
+# Finding the accuracy:
+
+acc_5 <- sum(diag(t_5))/sum(t_5)*100
+
+
+# Results of each SVM models with different kernels:
+
+paste0("The accuracy of 1st SVM model is ", round(acc_2,4))
+paste0("The accuracy of 2nd SVM model is ", round(acc_3,4))
+paste0("The accuracy of 3rd SVM model is ", round(acc_4,4))
+paste0("The accuracy of 4th SVM model is ", round(acc_5,4))
+
+```
+
+### From the results of each SVM model, Model 2 with radial kernel and cost parameter has the highest parameter so we will use this for our final model and validate it using the validation data
+
+## *Step 13: Building Model C - Random Forest*
+
+```{r}
+set.seed(577665)
+
+# Installing the randomForest package:
+
+if(!require(randomForest))
+  {
+    install.packages("randomForest")
+    library(randomForest)
+}
+
+# Building the training model:
+
+# Model 1 from randomForest function:
+
+model_rf_1 <- randomForest(Label~.,data = train)
+
+# Predicting using the testing data:
+
+model_rf_prediction_1 <- predict(model_rf_1, test, type="class")
+
+# Confusion matrix:
+
+t_rf_1 <- table(model_rf_prediction_1,test$Label)
+
+# Finding the accuracy:
+
+acc_rf_1 <- sum(diag(t_rf_1))/sum(t_rf_1)*100
+
+
+# Model 2 from randomForect function with ntree=1000:
+
+train$Label <- as.factor(train$Label)
+model_rf_2 <- randomForest(Label~.,data = train,ntree=1000)
+
+# Predicting using the testing data:
+
+model_rf_prediction_2 <- predict(model_rf_2, test, type="class")
+
+# Confusion matrix:
+
+t_rf_2 <- table(model_rf_prediction_2,test$Label)
+
+# Finding the accuracy:
+
+acc_rf_2 <- sum(diag(t_rf_2))/sum(t_rf_2)*100
+
+
+
+# Model 3 from randomForest function with ntree=2000:
+
+train$Label <- as.factor(train$Label)
+model_rf_3 <- randomForest(Label~.,data = train,ntree=2000)
+
+# Predicting using the testing data:
+
+model_rf_prediction_3 <- predict(model_rf_3, test, type="class")
+
+# Confusion matrix:
+
+t_rf_3 <- table(model_rf_prediction_3,test$Label)
+
+# Finding the accuracy:
+
+acc_rf_3 <- sum(diag(t_rf_3))/sum(t_rf_3)*100
+
+
+# Results from every random forest model
+
+paste0("The accuracy of the 1st Random forest model is ", round(acc_rf_1,4))
+paste0("The accuracy of the 2nd Random forest model is ", round(acc_rf_2,4))
+paste0("The accuracy of the 3rd Random forest model is ", round(acc_rf_3,4))
+
+```
+
+### From the result, model 3 with ntree=2000 has the highest accuracy and we would be using it for buildig our final model and validate the model using the validation data.
+
+## *Bagging*
+
+### The algorithm Random forest itself is a bagging of many decision trees with random feature and random rows and we have build the best fit model with the hyperparameter of number of trees = 2000
+### Reference - Line Of Code - *590 to 605*
+### The maximum number of votes or majority votes from each decision tree is taken as accuracy of the model in Line Of Code - *605 and 612*
+### Thus we have used the concept of bagging in our project
+
+## *Step 14: K fold validation method*
+
+```{r}
+set.seed(879387)
+
+# K fold cross validation method:
+
+# Creating k fold validation and train the model:
+
+# Installing the e1071 package:
+
+if(!require(e1071))
+  {
+    install.packages("e1071")
+    library(e1071)
+}
+
+# Installing the caret package:
+
+if(!require(caret))
+  {
+    install.packages("caret")
+    library(caret)
+}
+
+
+model_rf_a <- train(Label~., data=train, method='rpart', trControl=trainControl(method = 'cv',number = 50))
+# Number of fold ----- k=50 fold-----
+
+# Training the model with the new ds and the cp value generated from the above train fn:
+
+# Installing the rpart package:
+
+if(!require(rpart))
+  {
+    install.packages("rpart")
+    library(rpart)
+  }
+
+model_rf_a_b <- rpart(Label~.,data=train, method="class",cp=0.06013889)
+
+# Predicting using the testing data:
+
+predict_k_fold <- predict(model_rf_a_b,newdata=test, type="class")
+
+# Confusion matrix:
+
+t_k_fold <- table(predict_k_fold,test$Label)
+
+# Finding the accuracy:
+
+acc_k_fold <- sum(diag(t_k_fold))/sum(t_k_fold)*100
+paste0("The accuracy of the model using k fold validation method is ", round(acc_k_fold,4))
+```
+
+### The accuracy is not too good in the k fold validation
+### Tried with 4 different cp values from 0 to 1000 - there is a increase in accuracy with increase in k value, however, comparatively not too good so this model is not been considered for building the ensemble model
+
+
+## *Step 15: Building Ensemble model*
+
+```{r}
+
+#### Here all the testing data are the validation data
+
+## KNN:
+
+knn_model <- function(train, test, k){
+set.seed(98783)
+
+# Data preparation:
+  
+target_train_knn <- train$Label
+test_knn <- test[-7]
+train_knn <- train[-7]  
+  
+# Training and validating the model:
+
+model_knn_all <- class::knn(train = train_knn,test = test_knn,cl = target_train_knn,k=k)
+return(model_knn_all)
+}
+
+# Finding the accuracy of kNN model:
+
+knn_acc <- function(train, test,Label_val){
+
+model_knn_all_acc <- knn_model(train,test,179)
+
+# Confusion matrix:
+
+t_knn <- table(model_knn_all_acc,Label_val)
+
+# Finding the accuracy:
+
+acc_knn <- sum(diag(t_knn))/sum(t_knn)*100
+acc_knn
+}
+
+
+## SVM:
+
+svm_model <- function(train, test, c){
+set.seed(57282)
+  
+# Training the model:
+  
+model_svm <- svm(Label~., data=train, type = "C-classification", kernal = "radial", cost=c)
+
+# Validation of model:
+
+model_svm_predict_all <- predict(model_svm,test)
+return(model_svm_predict_all)
+}
+
+# Finding the accuracy:
+
+svm_acc <- function(train,test,Label_val){
+
+model_svm_predict_all <- svm_model(train, test, 10)  
+
+# Confusion matrix:
+
+t_svm <- table(model_svm_predict_all,Label_val)
+
+# Finding the accuracy:
+
+acc_svm <- sum(diag(t_svm))/sum(t_svm)*100
+acc_svm
+}
+
+
+## Random Forest:
+
+rf_model <- function(train, test, n){
+set.seed(46652)
+
+# Training the model:
+  
+train$Label <- as.factor(train$Label)
+rf <- randomForest(Label~.,data = train,ntree=n)
+
+# Validation of model:
+
+model_rf_prediction_all <- predict(rf, test, type="class")
+return(model_rf_prediction_all)
+}
+
+# Finding the accuracy:
+
+rf_acc <- function(train, test,Label_val){
+  
+model_rf_prediction_all <- rf_model(train,test,2000)
+
+# Confusion matrix:
+
+t_rf <- table(model_rf_prediction_all,Label_val)
+
+# Finding the accuracy:
+
+acc_rf <- sum(diag(t_rf))/sum(t_rf)*100
+acc_rf
+}
+
+# Accuracy of each model:
+# knn(train = train_knn,test = test_knn,cl = target_train_knn,k=k)
+  a1 <- knn_acc(train, validate, validate$Label)
+  a2 <- svm_acc(train, validate, validate$Label)
+  a3 <- rf_acc(train, validate, validate$Label)
+
+# Results:
+  
+  paste0("Accuracy of kNN model is ", round(a1,4))
+  paste0("Accuracy of SVM model is ", round(a2,4))
+  paste0("Accuracy of Random Forest model is ", round(a3,4))
+
+  
+# Ensemble model:
+
+predict_better_model <- function(x,y,k_val,cost,ntree,Label_val) # x is training data and y is validation data
+{
+  p1 <- knn_model(x,y,k_val)
+  p2 <- svm_model(x,y,cost)
+  p3 <- rf_model(x,y,ntree)
+  
+  a1 <- knn_acc(x,y,Label_val)
+  a2 <- svm_acc(x,y,Label_val)
+  a3 <- rf_acc(x,y,Label_val)
+  
+  {
+    if(a1==a2 & a2==a3)
+    {
+      return(p1)
+    }
+    else if(a1>a2)
+    {
+      return(p1)
+    }
+    else if(a2>a3)
+    {
+      return(p2)
+    }
+    else
+    {
+      return(p3)
+    }
+  }
+}
+
+# Applying the ensemble model to the validation dataset:
+
+predict_better_model(train, validate,179,10,2000,validate$Label)
+```
+
+### Based on the accuary of each model, Random forest has high accuracy compare to the other models (means more votes) so it would be used to predict the prediction of the validation data
+
+## *Step 16:Application of ensemble to make prediction*
+
+Using the ensemble model, predicting the Label of the MHealth for the following conditions:
+
+chest_acc_x_axis = -9.8184
+chest_acc_y_axis = 0.18185
+chest_acc_z_axis = 0.42094
+ECG_lead_1 = -0.016745
+ECG_lead_2 = -0.26374
+ankle_acc_x_axis = 2.1728
+
+```{r}
+# Creating the input dataset:
+
+chest_acc_x_axis = c(-9.8184)
+chest_acc_y_axis = c(0.18185)
+chest_acc_z_axis = c(0.42094)
+ECG_lead_1 = c(-0.016745)
+ECG_lead_2 = (-0.26374)
+ankle_acc_x_axis = c(2.1728)
+
+predict_the_val <- data.frame(chest_acc_x_axis,chest_acc_y_axis,chest_acc_z_axis,ECG_lead_1,ECG_lead_2,ankle_acc_x_axis)
+
+# Applying the new dataset into the ensemble model:
+
+final_val <- predict_better_model(train, predict_the_val,175,10,2000,11)
+
+paste0("The predicted level is ", final_val)
+```
+
+### Our ensemble model predicted that the level is 11
+### From the look up data in the site - http://archive.ics.uci.edu/ml/datasets/mhealth+dataset#, 11 means Running. Running can be used for the patient to monitor the heart functioning.
+
+## *Step 17:Feature Engineering*
+
+```{r}
+# As we have seen in the correlation analysis as well as in the paired panel graphs 
+# that the ECG lead 1 and ECG lead 2 are highly correlated, 
+# we will combine both the columns and create a new column called ECG 
+# Also we will add the feature Gender and design (50%-Male and 50%-Female) to see the gender correlation
+# And the effect of gender in ECG for selecting exercises
+# We will then divide the data, train, and test using the ensemble model
+
+
+# Taking a sample sample and implementing the concept:
+
+d_er <- d_shrink %>%group_by(Label) %>% sample_n(100, replace = FALSE) # Under sampling 
+head(d_er)
+table(d_er$Label)
+```
+
+
+```{r}
+# Adding the new engineered column:
+
+d_er$ECG <- d_er$ECG_lead_1+d_er$ECG_lead_2
+d_er <- d_er[,c(1,2,3,4,5,8,6,7)]
+head(d_er)
+
+```
+
+```{r}
+
+# Generating a random gender values:
+
+set.seed(98798)
+Gender <- sample(c("female","male"), nrow(d_er), replace=TRUE, prob = c(0.50, 0.50))
+Gender <- data.frame(Gender)
+d_er <- cbind(d_er, Gender)
+d_er <- d_er[,c(1,2,3,4,5,6,7,9,8)]
+head(d_er)
+
+```
+
+```{r}
+# Dummy encoding for converting categorical var to numbers except target variable
+
+# Installing the caret package:
+
+if(!require(caret))
+  {
+    install.packages("caret")
+    library(caret)
+  }
+
+
+dmy <- dummyVars("~.",data = d_er[8])
+d_er_g <- data.frame(predict(dmy,newdata = d_er))
+head(d_er_g,2)
+
+d_er <- cbind(d_er,d_er_g)
+d_er <- d_er[,c(1,2,3,4,5,6,7,10,11,9)]
+head(d_er,4)
+```
+
+```{r}
+
+# Dataset split:
+
+set.seed(8987)
+
+# Training dataset:
+
+d_er_train <- d_er %>%group_by(Label) %>% sample_n(50, replace = FALSE)
+diff_for_test <- setdiff(d_er,d_er_train)
+
+# Testing the dataset:
+
+d_er_test <- diff_for_test
+
+## There is no validation datset as we already build and tuned our model
+
+head(d_er_train,3)
+head(d_er_test,3)
+
+```
+
+```{r}
+
+# Applying the engineered dataset to all models:
+
+  p4 <- knn_model(d_er_train,d_er_test,179)
+  p5 <- svm_model(d_er_train,d_er_test,10)
+  p6 <- rf_model(d_er_train,d_er_test,2000)
+  
+# Finding the accuracy of feature engineered dataset:
+  
+  a4 <- knn_acc(d_er_train,d_er_test,d_er_test$Label)
+  a5 <- svm_acc(d_er_train,d_er_test,d_er_test$Label)
+  a6 <- rf_acc(d_er_train,d_er_test,d_er_test$Label)
+
+# Results:
+  
+  paste0("Accuracy of kNN model is ", round(a4,4))
+  paste0("Accuracy of SVM model is ", round(a5,4))
+  paste0("Accuracy of Random Forest model is ", round(a6,4))  
+  
+# Applying this dataset to our ensemble value:
+  
+predict_better_model(d_er_train,d_er_test,179,10,2000,d_er_test$Label)
+
+```
+
+### Even for the feature engineering dataset, Random Forest model predict more correct values as it has high accuracy compare to the other values, however, the accuracy percentage is low compare to the normal dataset than the engineered dataset. It doesn't mean that the new dataset is not good.
+### There is no effect of adding the Gender variable but in real time if this is included, it would help
+
+## *Step 18: Creating missing value dataset and imputing values*
+
+```{r}
+
+# Taking the dataset used for building ensemble model:
+
+d_miss <- d_shrink
+
+# Explore the dataset:
+
+summary(d_miss) # The range is too small for all the variables
+str(d_miss)
+
+# Replacing 10% of a column value to NA:
+
+nrow(d_miss)
+nrow(d_miss)*0.1
+d_miss$chest_acc_z_axis[c(100:5300)] <- NA
+
+# To find if there are any missing data in the dataset:
+
+length(d_miss[is.na(d_miss)])
+```
+
+```{r}
+# Imputing data to NA values:
+
+for(i in 1:ncol(d_miss)){
+d_miss[is.na(d_miss[,i]), i] <- mean(d_miss[,i], na.rm = TRUE)
+}
+
+# To find if there are any missing data in the dataset:
+# After imputation:
+
+length(d_miss[is.na(d_miss)])
+```
+
+## *Step 21: Splitting the mean imputed dataset*
+
+```{r}
+# Training data:
+
+d_miss_train    <- d_miss %>% group_by(Label) %>% sample_n(2400, replace = FALSE)
+remaining_d_miss <- setdiff(d_miss,d_miss_train)
+
+# Testing data:
+
+d_miss_test <- remaining_d_miss %>%group_by(Label) %>% sample_n(800, replace = FALSE)
+remaining_d_miss_2 <- setdiff(remaining_d_miss,d_miss_test)
+
+## We are not using the testing data to tune to model as it is already tuned
+## However, we have created this just to have a replica of original dataset 
+## to see the precise difference in accuracy of both the datasets
+
+# Validation data:
+
+d_miss_validate <- remaining_d_miss_2
+
+# Results of all datasets:
+
+nrow(d_miss_train)
+nrow(d_miss_test)
+nrow(d_miss_validate)
+table(d_miss_train$Label)
+table(d_miss_test$Label)
+table(d_miss_validate$Label)
+
+```
+
+
+## *Step 20: Applying the imputed data into the ensemble to compare the accuracy*
+
+
+```{r}
+
+# Applying the mean imputed dataset to all models:
+
+  p7 <- knn_model(d_miss_train,d_miss_test,179)
+  p8 <- svm_model(d_miss_train,d_miss_test,10)
+  p9 <- rf_model(d_miss_train,d_miss_test,2000)
+  
+# Finding the accuracy of feature engineered dataset:
+  
+  a7 <- knn_acc(d_miss_train,d_miss_test,d_miss_test$Label)
+  a8 <- svm_acc(d_miss_train,d_miss_test,d_miss_test$Label)
+  a9 <- rf_acc(d_miss_train,d_miss_test,d_miss_test$Label)
+
+# Results:
+  
+  paste0("Accuracy of kNN model is ", round(a7,4))
+  paste0("Accuracy of SVM model is ", round(a8,4))
+  paste0("Accuracy of Random Forest model is ", round(a9,4))  
+  
+# Applying this dataset to our ensemble value:
+  
+predict_better_model(d_miss_train,d_miss_test,179,10,2000,d_miss_test$Label)
+
+```
+
+### The ensemble works better for the newly created dataset with imputed mean value with highest accuray of 80.47115 when compared the actual/original dataset which has the accuracy of 74.2692
+
+## **Step 21: Out of scope - There is no logistic regression in my project but performing data transformation in the below chink for academic project requirement**
+
+## *Data transformation*
+
+```{r}
+# Creating a function to perform data transformation using exp method
+
+d_tran <- d_shrink
+zz <- ncol(d_tran)
+trans <- function(d){
+  for(i in 1:(zz-1)){ # Transformation will be applied other than the target var
+    d[,i] <- exp(d[,i]) # Using power transformation
+  }
+  return(d)
+}
+
+d_tran_updated <- trans(d_tran)
+head(d_tran_updated)
+```
+
+### None of the transformation completely normalize the data perfectly, however, exponential transformation is comparatively better than log, inverse, square root, cube root, box-cox, and log+1.
